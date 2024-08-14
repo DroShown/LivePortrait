@@ -20,8 +20,8 @@ from .utils.cropper import Cropper
 from .utils.camera import get_rotation_matrix
 from .utils.video import images2video, concat_frames, get_fps, add_audio_to_video, has_audio_stream
 from .utils.crop import prepare_paste_back, paste_back
-from .utils.io import load_image_rgb, load_video, resize_to_limit, dump, load
-from .utils.helper import mkdir, basename, dct2device, is_video, is_template, remove_suffix, is_image, is_square_video, calc_motion_multiplier
+from .utils.io import load_image_rgb, load_video, load_image_rgb_lst, resize_to_limit, dump, load
+from .utils.helper import mkdir, basename, dct2device, is_video, is_directory, is_template, remove_suffix, is_image, is_square_video, calc_motion_multiplier
 from .utils.filter import smooth
 from .utils.rprint import rlog as log
 # from .utils.viz import viz_lmk
@@ -96,6 +96,12 @@ class LivePortraitPipeline(object):
             source_rgb_lst = [resize_to_limit(img, inf_cfg.source_max_dim, inf_cfg.source_division) for img in source_rgb_lst]
             source_fps = int(get_fps(args.source))
             log(f"Load source video from {args.source}, FPS is {source_fps}")
+        elif is_directory(args.source):
+            flag_is_source_video = True
+            source_rgb_lst = load_image_rgb_lst(args.source)
+            source_rgb_lst = [resize_to_limit(img, inf_cfg.source_max_dim, inf_cfg.source_division) for img in source_rgb_lst]
+            source_fps = 25
+            log(f"Load source video from {args.source}, FPS is {source_fps}")
         else:  # source input is an unknown format
             raise Exception(f"Unknown source format: {args.source}")
 
@@ -123,22 +129,30 @@ class LivePortraitPipeline(object):
             if args.flag_crop_driving_video:
                 log("Warning: flag_crop_driving_video is True, but the driving info is a template, so it is ignored.")
 
-        elif osp.exists(args.driving) and is_video(args.driving):
-            # load from video file, AND make motion template
-            output_fps = int(get_fps(args.driving))
-            log(f"Load driving video from: {args.driving}, FPS is {output_fps}")
-
-            driving_rgb_lst = load_video(args.driving)
-            driving_n_frames = len(driving_rgb_lst)
+        elif osp.exists(args.driving):
+            if is_video(args.driving):
+                # load from video file, AND make motion template
+                output_fps = int(get_fps(args.driving))
+                log(f"Load driving video from: {args.driving}, FPS is {output_fps}")
+                driving_rgb_lst = load_video(args.driving)
+                driving_n_frames = len(driving_rgb_lst)
+            elif is_directory(args.driving):
+                # load from image directory, AND make motion template
+                output_fps = 25
+                log(f"Load driving video from: {args.driving}, FPS is {output_fps}")
+                driving_rgb_lst = load_image_rgb_lst(args.driving)
+                driving_n_frames = len(driving_rgb_lst)
 
             ######## make motion template ########
             log("Start making driving motion template...")
+            # 取src&drv帧数较小值
             if flag_is_source_video:
                 n_frames = min(len(source_rgb_lst), driving_n_frames)  # minimum number as the number of the animated frames
                 driving_rgb_lst = driving_rgb_lst[:n_frames]
             else:
                 n_frames = driving_n_frames
-            if inf_cfg.flag_crop_driving_video or (not is_square_video(args.driving)):
+            # 裁剪drv video，返回裁剪后的帧和关键点
+            if inf_cfg.flag_crop_driving_video or (not is_square_video(args.driving)): #flag_crop_driving_video 默认 False
                 ret_d = self.cropper.crop_driving_video(driving_rgb_lst)
                 log(f'Driving video is cropped, {len(ret_d["frame_crop_lst"])} frames are processed.')
                 if len(ret_d["frame_crop_lst"]) is not n_frames:
@@ -164,7 +178,7 @@ class LivePortraitPipeline(object):
 
         ######## prepare for pasteback ########
         I_p_pstbk_lst = None
-        if inf_cfg.flag_pasteback and inf_cfg.flag_do_crop and inf_cfg.flag_stitching:
+        if inf_cfg.flag_pasteback and inf_cfg.flag_do_crop and inf_cfg.flag_stitching: # 默认都是True
             I_p_pstbk_lst = []
             log("Prepared pasteback mask done.")
 
@@ -179,7 +193,7 @@ class LivePortraitPipeline(object):
             log(f"Start making source motion template...")
 
             source_rgb_lst = source_rgb_lst[:n_frames]
-            if inf_cfg.flag_do_crop:
+            if inf_cfg.flag_do_crop: # 默认 True
                 ret_s = self.cropper.crop_source_video(source_rgb_lst, crop_cfg)
                 log(f'Source video is cropped, {len(ret_s["frame_crop_lst"])} frames are processed.')
                 if len(ret_s["frame_crop_lst"]) is not n_frames:
@@ -208,6 +222,7 @@ class LivePortraitPipeline(object):
                     x_d_r_lst = [driving_template_dct['motion'][i][key_r] for i in range(n_frames)]
                     x_d_r_lst_smooth = smooth(x_d_r_lst, source_template_dct['motion'][0]['R'].shape, device, inf_cfg.driving_smooth_observation_variance)
 
+        # 单图src
         else:  # if the input is a source image, process it only once
             if inf_cfg.flag_do_crop:
                 crop_info = self.cropper.crop_source_image(source_rgb_lst[0], crop_cfg)
@@ -227,6 +242,7 @@ class LivePortraitPipeline(object):
 
             # let lip-open scalar to be 0 at first
             if flag_normalize_lip and inf_cfg.flag_relative_motion and source_lmk is not None:
+                # 计算 src 的 lip-open scalar,如果太大就计算一个kp的delta：lip_delta_before_animation
                 c_d_lip_before_animation = [0.]
                 combined_lip_ratio_tensor_before_animation = self.live_portrait_wrapper.calc_combined_lip_ratio(c_d_lip_before_animation, source_lmk)
                 if combined_lip_ratio_tensor_before_animation[0][0] >= inf_cfg.lip_normalize_threshold:
@@ -270,6 +286,7 @@ class LivePortraitPipeline(object):
                     combined_eye_ratio_tensor_before_animation = self.live_portrait_wrapper.calc_combined_eye_ratio(c_d_eye_before_animation_frame_zero, source_lmk)
                     eye_delta_before_animation = self.live_portrait_wrapper.retarget_eye(x_s, combined_eye_ratio_tensor_before_animation)
 
+                # prepare for paste back
                 if inf_cfg.flag_pasteback and inf_cfg.flag_do_crop and inf_cfg.flag_stitching:  # prepare for paste back
                     mask_ori_float = prepare_paste_back(inf_cfg.mask_crop, source_M_c2o_lst[i], dsize=(source_rgb_lst[i].shape[1], source_rgb_lst[i].shape[0]))
 
@@ -281,6 +298,8 @@ class LivePortraitPipeline(object):
                 R_d_0 = R_d_i
                 x_d_0_info = x_d_i_info
 
+            #import pdb; pdb.set_trace()
+
             if inf_cfg.flag_relative_motion:
                 if flag_is_source_video:
                     if inf_cfg.flag_video_editing_head_rotation:
@@ -288,7 +307,7 @@ class LivePortraitPipeline(object):
                     else:
                         R_new = R_s
                 else:
-                    R_new = (R_d_i @ R_d_0.permute(0, 2, 1)) @ R_s
+                    R_new = (R_d_i @ R_d_0.permute(0, 2, 1)) @ R_s # 相当于R_d_i * R_d_0.T * R_s，即src的旋转叠加drv旋转的delta
 
                 delta_new = x_d_exp_lst_smooth[i] if flag_is_source_video else x_s_info['exp'] + (x_d_i_info['exp'] - x_d_0_info['exp'])
                 scale_new = x_s_info['scale'] if flag_is_source_video else x_s_info['scale'] * (x_d_i_info['scale'] / x_d_0_info['scale'])

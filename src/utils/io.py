@@ -1,6 +1,7 @@
 # coding: utf-8
 
 import os.path as osp
+import os
 import imageio
 import numpy as np
 import pickle
@@ -15,6 +16,18 @@ def load_image_rgb(image_path: str):
     img = cv2.imread(image_path, cv2.IMREAD_COLOR)
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
+def load_image_rgb_lst(image_dir: str):
+    if not osp.exists(image_dir):
+        raise FileNotFoundError(f"Image directory not found: {image_dir}")
+    ret = []
+    dirlist = os.listdir(image_dir)
+    dirlist.sort()
+    for img_name in dirlist:
+        if not img_name.endswith('.png') and not img_name.endswith('.jpg'):
+            continue
+        img = cv2.imread(osp.join(image_dir, img_name), cv2.IMREAD_COLOR)
+        ret.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    return ret
 
 def load_video(video_info, n_frames=-1):
     reader = imageio.get_reader(video_info, "ffmpeg")

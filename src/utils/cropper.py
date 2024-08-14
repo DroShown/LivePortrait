@@ -278,6 +278,7 @@ class Cropper(object):
         return {
             "frame_crop_lst": trajectory.frame_rgb_crop_lst,
             "lmk_crop_lst": trajectory.lmk_crop_lst,
+            "bbox_lst": trajectory.bbox_lst,
         }
 
 

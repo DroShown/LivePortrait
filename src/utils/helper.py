@@ -73,9 +73,12 @@ def is_image(file_path):
 
 
 def is_video(file_path):
-    if file_path.lower().endswith((".mp4", ".mov", ".avi", ".webm")) or osp.isdir(file_path):
+    if file_path.lower().endswith((".mp4", ".mov", ".avi", ".webm")) :#or osp.isdir(file_path):
         return True
     return False
+
+def is_directory(file_path):
+    return osp.isdir(file_path)
 
 
 def is_template(file_path):
@@ -186,6 +189,10 @@ def is_square_video(video_path):
         # gr.Info(f"Uploaded video is not square, force do crop (driving) to be True")
 
     return width == height
+
+def is_square_image(img):
+    return img.shape[0] == img.shape[1]
+
 
 def clean_state_dict(state_dict):
     new_state_dict = OrderedDict()

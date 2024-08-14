@@ -38,7 +38,7 @@ class InferenceConfig(PrintableConfig):
     flag_eye_retargeting: bool = False
     flag_lip_retargeting: bool = False
     flag_stitching: bool = True
-    flag_relative_motion: bool = True
+    flag_relative_motion: bool = False
     flag_pasteback: bool = True
     flag_do_crop: bool = True
     flag_do_rot: bool = True
