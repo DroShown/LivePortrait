@@ -17,15 +17,18 @@ from src.config.crop_config import CropConfig
 from src.motion_extractor_pipeline import ExtractMotionPipeline
 from inference import partial_fields, fast_check_ffmpeg, fast_check_args
 
-dir_name = "padded_frames"
+dir_name = "crop_output/tracked_crop"
 motion_name = "motion_feature.pkl"
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--img_root', type=str, default='/home/xzx/xueshenCN_toy', help='root directory of images')
-    parser.add_argument('--config', type=str, default='/home/xzx/xueshenCN_toy/xueshenCN_toy.json', help='path to the config file')
+    parser.add_argument('--begin_idx', type=str, default='1490', help='begin index of segment')
+    parser.add_argument('--end_idx', type=str, default='3000', help='end index of segment')
+    parser.add_argument('--img_root', type=str, default='/home/bml/storage/mnt/v-f028498a5029402d/org/student/dataset/xueshenCN', help='root directory of images')
+    parser.add_argument('--config', type=str, default='/home/bml/storage/mnt/v-f028498a5029402d/org/student/dataset/xueshenCN/xueshenCN.json', help='path to the config file')
     parser.add_argument('--device', type=str, default='cuda', help='device to run the model')
-
+    parser.add_argument('--log_file', type=str, default='/home/bml/storage/mnt/v-f028498a5029402d/org/student/dataset/xueshenCN/xueshenCN_extract_motion_exception_log', help='log file')
     return parser.parse_args()
 
 
@@ -68,7 +71,7 @@ def main(args):
     ################################################################
 
 
-
+    log_file_path = f"{args.log_file}_{args.begin_idx}_{args.end_idx}.txt"
     img_root = Path(args.img_root)
     with open(args.config, "r") as f:
         sequences = json.load(f)
@@ -79,11 +82,21 @@ def main(args):
         out_path = img_root / seq / motion_name
         args_lst.append((path, out_path))
 
-    for args in tqdm(args_lst):
-        extractor_pipeline.extract_motion_features(str(args[0]), str(args[1]))
+    start = time.time()
+    with open(log_file_path,'w') as log_file:
+        for task_args in tqdm(args_lst[int(args.begin_idx):int(args.end_idx)]):
+            try:
+                extractor_pipeline.extract_motion_features(str(task_args[0]), str(task_args[1]))
+            except BaseException as e:
+                print(f"No face detected in {task_args[0].parent.parent.name}")
+                log_file.write(f"No face detected in {task_args[0].parent.parent.name}")
+
+    end = time.time()
+    print(f"time for motion extraction:{end-start}")
 
     print("Finished processing all motion features.")
 
 if __name__ == "__main__":
     args = parse_args()
+    print(args)
     main(args)

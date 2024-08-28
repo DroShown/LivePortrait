@@ -115,10 +115,12 @@ class ConvNeXtV2(nn.Module):
             x = self.downsample_layers[i](x)
             x = self.stages[i](x)
         return self.norm(x.mean([-2, -1]))  # global average pooling, (N, C, H, W) -> (N, C)
+        # norm: nn.LayerNorm
 
     def forward(self, x):
         x = self.forward_features(x)
 
+        # fc_*: nn.Linear
         # implicit keypoints
         kp = self.fc_kp(x)
 
